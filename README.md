@@ -93,7 +93,6 @@ python main_cli.py --save-format "none"
 ## **Error Handling**
 - If the input directory does not exist, the script will raise an error.
 - If invalid date formats are provided, the script will display an error message and exit.
-
 ---
 
 ## **License**
