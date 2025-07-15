@@ -8,7 +8,13 @@ import zipfile
 
 
 class ActivityParser:
-    def __init__(self, folder_of_zip_files: str | None = None, zip_file_pattern: str = "polar-user-data-export*", start_date: str = None, end_date: str = None):
+    def __init__(
+        self,
+        folder_of_zip_files: str | None = None,
+        zip_file_pattern: str = "polar-user-data-export*",
+        start_date: str = None,
+        end_date: str = None,
+    ):
         """Initialize the parser and process activity & 24/7 HR data."""
         self.directory = Path(folder_of_zip_files) if folder_of_zip_files else Path.cwd()
         if not self.directory.exists():
@@ -33,9 +39,9 @@ class ActivityParser:
             return
 
         for zip_path in matching_zips:
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            with zipfile.ZipFile(zip_path, "r") as zip_ref:
                 for filemember in zip_ref.namelist():
-                    if filemember.startswith('account-data') and filemember.endswith('.json'):
+                    if filemember.startswith("account-data") and filemember.endswith(".json"):
                         # print(f"Found account data JSON file: {filemember}")
                         # load json file
                         with zip_ref.open(filemember) as file:
@@ -81,7 +87,9 @@ class ActivityParser:
                 "step_total": summary.get("stepCount"),
             }
 
-            self.activity_summary = pd.concat([self.activity_summary, pd.DataFrame([activity_entry])], ignore_index=True)
+            self.activity_summary = pd.concat(
+                [self.activity_summary, pd.DataFrame([activity_entry])], ignore_index=True
+            )
 
             # Time series step data (many per day)
             if steps:
@@ -90,7 +98,9 @@ class ActivityParser:
                 step_df["date"] = date  # associate samples with their day
                 # date has been filtered at this point, so we can use it directly
                 # reorder
-                step_df = step_df[["username", "date"] + [col for col in step_df.columns if col not in ["username", "date"]]]
+                step_df = step_df[
+                    ["username", "date"] + [col for col in step_df.columns if col not in ["username", "date"]]
+                ]
                 self.step_series_df = pd.concat([self.step_series_df, step_df], ignore_index=True)
 
         except Exception as e:
@@ -120,11 +130,14 @@ class ActivityParser:
                 day_hr_df["username"] = self.username
                 # Convert seconds from day start to time of day
                 day_hr_df["timeOfDay"] = day_hr_df["secondsFromDayStart"].apply(
-                    lambda x: (datetime.min + pd.to_timedelta(x, unit='s')).time()
+                    lambda x: (datetime.min + pd.to_timedelta(x, unit="s")).time()
                 )
 
                 # reorder columns
-                day_hr_df = day_hr_df[["username", "date", "timeOfDay", "heartRate"] + [col for col in day_hr_df.columns if col not in ["username", "date", "timeOfDay", "heartRate"]]]
+                day_hr_df = day_hr_df[
+                    ["username", "date", "timeOfDay", "heartRate"]
+                    + [col for col in day_hr_df.columns if col not in ["username", "date", "timeOfDay", "heartRate"]]
+                ]
                 # append to the main dataframe
                 self.hr_247_df = pd.concat([self.hr_247_df, day_hr_df], ignore_index=True)
 

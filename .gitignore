@@ -9,3 +9,15 @@
 
 # Ignore all text files
 *.txt
+
+# Ignore data, input, output, testing, etc.
+data/
+input/
+output/
+raw/
+parser_output/
+test/
+
+# Debugging files
+__pycache__/
+*/__pycache__/

@@ -76,6 +76,11 @@ python main_cli.py --save-format "both"
 python main_cli.py --save-format "none"
 ```
 
+#### **6. Run from venv with custom directories, when in main working directory**
+```bash
+.venv/bin/python ./parser/main_cli.py --input-dir "./raw/zip" --output-dir "./parser_output"
+```
+
 ---
 
 ## **Output**
