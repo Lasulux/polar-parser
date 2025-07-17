@@ -1,12 +1,12 @@
 # Polar Data Parser CLI
 
-This project provides a command-line interface (CLI) for processing and exporting Polar user data from `.zip` files. The CLI extracts training sessions, activities, and heart rate data, and saves the processed data in CSV or Excel formats.
+This project provides a command-line interface (CLI) for processing and exporting Polar user data from `.zip` files. The CLI extracts training sessions, activities, heart rate data, and sleep data, and saves the processed data in CSV or Excel formats.
 
 ---
 
 ## **Features**
 - Parses `.zip` files containing Polar user data.
-- Extracts training session summaries, activity summaries, and heart rate samples.
+- Extracts training sessions, activities, heart rate data, and sleep data.
 - Saves processed data in CSV, Excel, or both formats.
 - Allows filtering data by date range.
 
@@ -92,6 +92,13 @@ python main_cli.py --save-format "none"
   - `activity_summary.csv` or `.xlsx`
   - `step_series.csv` or `.xlsx`
   - `activity_hr.csv` or `.xlsx`
+  - `sleep_wake_samples.csv` or `.xlsx`
+  - `sleep_scores.csv` or `.xlsx`
+  - `sleep_result.csv` or `.xlsx`
+  - `hypnogram.csv` or `.xlsx`
+  - `nightly_recovery_hrv_data.csv` or `.xlsx`
+  - `nightly_recovery_breathing_data.csv` or `.xlsx`
+  - `nightly_recovery_summary.csv` or `.xlsx`
 
 ---
 
