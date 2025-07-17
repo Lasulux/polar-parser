@@ -7,7 +7,7 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime, timedelta
 import zipfile
-
+from tqdm import tqdm
 
 
 class TrainingParser:
@@ -71,8 +71,12 @@ class TrainingParser:
                             self.parse_exercise_summary(exercises, username)
                             # parse heart rate samples
                             self.parse_hr_samples(exercises, username)
+                            print(f"Processed training session file: {filemember} for user: {username}")
                         
-
+        print(f"Total training session files found: {len(self.training_JSON_files)}")
+        print(f"Total training summary entries: {len(self.training_summary)}")
+        print(f"Total heart rate samples collected: {len(self.training_hr_samples)}")
+        print("starting returning training hr df")
         folder_path = Path(matching_folders[0])  # Use the first matching folder, should be updated to handle multiple folders!!!
         return [f for f in folder_path.glob("training-session*.json")]
 
@@ -80,7 +84,7 @@ class TrainingParser:
     def parse_exercise_summary(self, exercises: list, username:str):
         """Parses exercise summary and appends to the DataFrame."""
         exercise_list = []
-        for ex in exercises:
+        for ex in tqdm(exercises, desc=f"Parsing exercises for {username}"):
             try:
                 start = datetime.fromisoformat(ex["startTime"]) + timedelta(minutes=ex.get("timezoneOffset", 0))
                 stop = datetime.fromisoformat(ex["stopTime"]) + timedelta(minutes=ex.get("timezoneOffset", 0))
@@ -106,14 +110,15 @@ class TrainingParser:
             except (KeyError, ValueError, TypeError) as e:
                 print(f"Skipping invalid exercise entry: {e}")
 
+        print(f"Found {len(exercise_list)} exercises for user {username}. Appending to DataFrame.")
         self.training_summary = pd.concat([self.training_summary, pd.DataFrame(exercise_list)], ignore_index=True)
 
 
     def parse_hr_samples(self, exercises: list, username: str) -> pd.DataFrame:
         """Parses heart rate samples and returns a DataFrame."""
         hr_samples = []
-        for ex in exercises:
-        
+        for ex in tqdm(exercises, desc=f"Parsing heart rate samples for {username}"):
+            
             try:
                 for sample in ex.get("samples", {}).get("heartRate", []):
                     sample_time = datetime.fromisoformat(sample["dateTime"]) + timedelta(minutes=ex.get("timezoneOffset", 0))
@@ -128,7 +133,10 @@ class TrainingParser:
         hr_df = pd.DataFrame(hr_samples)
 
         if not hr_df.empty:
+            print(f"Found {len(hr_df)} heart rate samples for user {username} in exercise {ex.get('sport', 'unknown')}. Appending to DataFrame.")
             self.training_hr_samples.append(hr_df)
+            print(f"Total heart rate samples collected after append: {len(self.training_hr_samples)}")
             self.training_hr_df = pd.concat([self.training_hr_df, hr_df], ignore_index=True)
+            print(f"Total heart rate DataFrame size after concat: {self.training_hr_df.shape}")
 
 
