@@ -1,7 +1,7 @@
 import re
 import os
 import pandas as pd
-from tqdm import tqdm
+from tqdm.auto import tqdm
 import logging
 
 logging.basicConfig(level=logging.INFO)

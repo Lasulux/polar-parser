@@ -2,7 +2,7 @@ import argparse
 import re
 import os
 import pandas as pd
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from datetime import datetime
 from filters import Filter
 import logging
