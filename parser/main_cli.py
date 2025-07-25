@@ -95,7 +95,9 @@ def process_polar_data(zip_data_directory, output_dir, save_format, start_date=N
 def main():
     parser = argparse.ArgumentParser(description="Process and export Polar user data.")
     parser.add_argument("--input-dir", type=str, default="../input", help="Path to directory containing zip files")
-    parser.add_argument("--output-dir", type=str, default="../output", help="Directory where output will be saved")
+    parser.add_argument(
+        "--output-dir", type=str, default="../parser_output", help="Directory where output will be saved"
+    )
     parser.add_argument(
         "--start-date",
         type=str,
