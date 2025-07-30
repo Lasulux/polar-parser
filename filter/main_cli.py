@@ -64,7 +64,7 @@ def main():
     """
     parser = argparse.ArgumentParser(description="Filter and summarize Polar user data.")
     parser.add_argument(
-        "--input-dir", type=str, default="../parser_output", help="Path to directory containing input files"
+        "--input-dir", type=str, default="./parser_output", help="Path to directory containing input files"
     )
     parser.add_argument(
         "--output-dir", type=str, default="./filter_output", help="Directory where output will be saved"
@@ -81,6 +81,20 @@ def main():
         default=True,
         help="Create a master file with all data combined. If False, only individual files will be created.",
     )
+    parser.add_argument(
+        "--filter-by-training",
+        "-fbt",
+        type=str,
+        default="all",
+        help="Whether to only include data during training times in the comparison. Possible values: 'training_only', 'non_training_only', 'all'.",
+    )
+    parser.add_argument(
+        "--convert-training-to-days",
+        "-ctd",
+        type=bool,
+        default=True,
+        help="Convert training times to days instead of hours. This is useful for getting daily summaries of training days.",
+    )
 
     args = parser.parse_args()
 
@@ -89,7 +103,13 @@ def main():
         logger.error("Input directory cannot be the same as output directory to avoid data loss.")
         raise ValueError("Input directory cannot be the same as output directory to avoid data loss.")
 
-    filter = Filter(input_dir=args.input_dir, output_dir=args.output_dir, overwrite=args.overwrite)
+    filter = Filter(
+        input_dir=args.input_dir,
+        output_dir=args.output_dir,
+        overwrite=args.overwrite,
+        filter_by_training=args.filter_by_training,
+        convert_training_to_days=args.convert_training_to_days,
+    )
     filter.run()
 
     if args.master:

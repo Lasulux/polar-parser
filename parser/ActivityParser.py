@@ -97,10 +97,10 @@ class ActivityParser:
                 step_df["username"] = self.username
                 step_df["date"] = date  # associate samples with their day
                 # date has been filtered at this point, so we can use it directly
-                # reorder
-                step_df = step_df[
-                    ["username", "date"] + [col for col in step_df.columns if col not in ["username", "date"]]
-                ]
+                # # reorder
+                # step_df = step_df[
+                #     ["username", "date"] + [col for col in step_df.columns if col not in ["username", "date"]]
+                # ]
                 self.step_series_df = pd.concat([self.step_series_df, step_df], ignore_index=True)
 
         except Exception as e:

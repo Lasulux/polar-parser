@@ -8,8 +8,8 @@ from save_data import save_data_files
 
 # Process json files containing data exported from Polar website
 
-zip_data_directory = "../input"
-output_dir = "../output"
+zip_data_directory = "./raw/zip"
+output_dir = "./parser_output"
 save_format = "csv"  # save files in excel, csv, both or None (saving files as .csv is much faster)
 
 training_parser = TrainingParser(folder_of_zip_files=zip_data_directory, zip_file_pattern="polar-user-data-export*")

@@ -45,7 +45,7 @@ class TrainingParser:
         """Finds all training session JSON files in the first matching folder."""
         matching_folders = [str(folder) for folder in self.directory.glob(self.folder_pattern)]
         if not matching_folders:
-            tqdm.write("No matching folders or zip files found at:", self.folder_pattern)
+            tqdm.write(f"No matching folders or zip files found at: {self.folder_pattern}")
             return []
         for folder in matching_folders:
             # tqdm.write(f"Found folder: {folder}")

@@ -38,7 +38,10 @@ def main():
     """
     parser = argparse.ArgumentParser(description="Filter and summarize Polar user data.")
     parser.add_argument(
-        "--input-dir", type=str, default="./filter_output", help="Path to directory containing input files"
+        "--input-dir",
+        type=str,
+        default="./filter_output",
+        help="Path to directory containing input files",
     )
     parser.add_argument(
         "--output-dir", type=str, default="./compare_output", help="Directory where output will be saved"

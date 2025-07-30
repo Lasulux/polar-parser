@@ -3,16 +3,30 @@ import os
 import pandas as pd
 from tqdm.auto import tqdm
 from typing import Optional
+from datetime import datetime
 
 
 class Filter:
     # Minimum date threshold - filter out data earlier than this date
     MIN_DATE = pd.Timestamp("2020-01-01")
 
-    def __init__(self, input_dir: str, output_dir: str, overwrite: bool = False):
+    def __init__(
+        self,
+        input_dir: str,
+        output_dir: str,
+        overwrite: bool = False,
+        filter_by_training: bool = False,
+        convert_training_to_days: bool = True,
+    ):
+        """
+        Initialize the Filter class.
+        """
         self.input_dir = input_dir
         self.output_dir = output_dir
         self.overwrite = overwrite
+        self.filter_by_training = filter_by_training
+        self.start_end_datetimes = []
+        self.convert_training_to_days = convert_training_to_days  # Convert training times to whole days
         # Ensure directories exist
         try:
             if not os.path.exists(self.input_dir):
@@ -24,12 +38,62 @@ class Filter:
             tqdm.write(f"ERROR: Error creating directories: {e}")
             raise ValueError(f"Invalid directory paths: {e}")
 
-    def _filter_by_date(self, df: pd.DataFrame, date_column: str) -> pd.DataFrame:
+    def _get_training_times(self, csv_file_path) -> list[dict]:
+        # check if the file is training_summary.csv:
+        if not "training_summary.csv" in csv_file_path:
+            # check if the parent folder contains a training_summary.csv
+            parent_dir = os.path.dirname(csv_file_path)
+            if "training_summary.csv" in os.listdir(parent_dir):
+                csv_file_path = os.path.join(parent_dir, "training_summary.csv")
+
+        # open and load training_summary.csv
+        try:
+            df = pd.read_csv(csv_file_path)
+            if df.empty:
+                # tqdm.write(f"WARNING: Training summary file is empty: {csv_file_path}")
+                # at this point we should filter out everything. (for training. Or keep everything for non_training.)
+                # dirty workaround: give a range that probably does not contain anything
+                return [{"start": "1942-01-01", "end": "1942-01-02"}]
+
+            # Extract start and end times from the training summary
+            if "start" in df.columns and "stop" in df.columns:
+                # optional, and sport is OTHER_INDOOR
+                if "sport" in df.columns:
+                    df = df[df["sport"] == "OTHER_INDOOR"].copy()
+
+                if self.convert_training_to_days:
+                    for _, row in df.iterrows():
+                        start = row["start"]
+                        end = row["stop"]
+                        start = datetime.strptime(start, "%Y-%m-%d %H:%M:%S.%f")
+                        start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+                        start = start.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                        end = datetime.strptime(end, "%Y-%m-%d %H:%M:%S.%f")
+                        end = end.replace(hour=23, minute=59, second=59, microsecond=99)
+                        end = end.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                        self.start_end_datetimes.append({"start": start, "end": end})
+                else:
+                    self.start_end_datetimes = [
+                        {"start": row["start"], "end": row["stop"]} for _, row in df.iterrows()
+                    ]
+
+                return self.start_end_datetimes
+            else:
+                tqdm.write(f"WARNING: No start/stop columns found in {csv_file_path}")
+                return []
+        except Exception as e:
+            tqdm.write(f"ERROR: Failed to read training summary file {csv_file_path}: {e}")
+            return []
+
+    def _filter_by_date(
+        self, df: pd.DataFrame, date_column: str, start_end_datetimes: list[dict] = []
+    ) -> pd.DataFrame:
         """
-        Filter DataFrame to keep only rows with dates >= MIN_DATE.
+        Filter DataFrame to keep only rows within specified date ranges.
         Args:
             df (pd.DataFrame): DataFrame to filter.
             date_column (str): Name of the date column to filter on.
+            start_end_datetimes: Optional list of dicts with 'start' and 'end' keys for date ranges.
         Returns:
             pd.DataFrame: Filtered DataFrame.
         """
@@ -40,14 +104,58 @@ class Filter:
             # Convert date column to datetime if it's not already
             if not pd.api.types.is_datetime64_any_dtype(df[date_column]):
                 df[date_column] = pd.to_datetime(df[date_column])
-            # Filter out rows earlier than MIN_DATE
+
             initial_count = len(df)
+
+            # Always apply MIN_DATE filter first
             df = df[df[date_column] >= self.MIN_DATE].copy()
+
+            if self.filter_by_training == "training_only":
+                # If date ranges are provided, filter to keep only rows within those ranges
+                if start_end_datetimes:
+                    mask = pd.Series([False] * len(df), index=df.index)
+
+                    for date_range in start_end_datetimes:
+                        start_date = pd.to_datetime(date_range.get("start", self.MIN_DATE))
+                        end_date = date_range.get("end")
+                        if end_date is not None:
+                            end_date = pd.to_datetime(end_date)
+                            range_mask = (df[date_column] >= start_date) & (df[date_column] <= end_date)
+                            mask = mask | range_mask
+                        else:
+                            tqdm.write(
+                                f"WARNING: No end date provided for range starting at {start_date}. Skipping range."
+                            )
+                    df = df[mask].copy()
+
+            elif self.filter_by_training == "non_training_only":
+                # If date ranges are provided, filter to keep only rows outside those ranges
+                if start_end_datetimes:
+                    mask = pd.Series([True] * len(df), index=df.index)
+
+                    for date_range in start_end_datetimes:
+                        start_date = pd.to_datetime(date_range.get("start", self.MIN_DATE))
+                        end_date = date_range.get("end")
+                        if end_date is not None:
+                            end_date = pd.to_datetime(end_date)
+                            range_mask = (df[date_column] >= start_date) & (df[date_column] <= end_date)
+                            mask = mask & ~range_mask
+                        else:
+                            tqdm.write(
+                                f"WARNING: No end date provided for range starting at {start_date}. Skipping range."
+                            )
+                    df = df[mask].copy()
+
             filtered_count = len(df)
             if initial_count != filtered_count:
-                tqdm.write(
-                    f"INFO: Filtered out {initial_count - filtered_count} rows earlier than {self.MIN_DATE.strftime('%Y-%m-%d')} from {date_column}"
-                )
+                if not start_end_datetimes:
+                    tqdm.write(
+                        f"INFO: Filtered out {initial_count - filtered_count} rows earlier than {self.MIN_DATE.strftime('%Y-%m-%d')} from {date_column}"
+                    )
+                else:
+                    tqdm.write(
+                        f"INFO: Filtered out {initial_count - filtered_count} rows outside {len(start_end_datetimes)} specified date ranges (after MIN_DATE filter) from {date_column}"
+                    )
             return df
         except Exception as e:
             tqdm.write(f"WARNING: Error filtering by date in column {date_column}: {e}")
@@ -77,8 +185,13 @@ class Filter:
         Returns:
             pd.DataFrame: Processed DataFrame with relevant columns.
         """
+
+        # Create datetime column from date and timeOfDay if both columns exist
+        if "date" in df.columns and "timeOfDay" in df.columns:
+            df["datetime"] = pd.to_datetime(df["date"].astype(str) + " " + df["timeOfDay"].astype(str))
+
         # Filter by date first
-        df = self._filter_by_date(df, "date")
+        df = self._filter_by_date(df, "datetime", start_end_datetimes=self.start_end_datetimes)
 
         # Check if data is already processed (contains aggregated columns)
         if "heartRate_mean_overall" in df.columns:
@@ -131,7 +244,7 @@ class Filter:
             pd.DataFrame: Processed DataFrame with relevant columns.
         """
         # Filter by date first
-        df = self._filter_by_date(df, "date")
+        df = self._filter_by_date(df, "date", start_end_datetimes=self.start_end_datetimes)
 
         # Filter out rows where both calories and step_total are 0
         if "calories" in df.columns and "step_total" in df.columns:
@@ -163,13 +276,29 @@ class Filter:
         Returns:
             pd.DataFrame: Processed DataFrame with relevant columns.
         """
-        # Filter by date first
-        df = self._filter_by_date(df, "date")
 
         # Check if data is already processed (contains aggregated columns)
         if "step_count_mean_daily" in df.columns:
             # Data is already processed, return as is
             return df
+
+        # Filter out rows with missing localTime values
+        if "localTime" in df.columns:
+            initial_count = len(df)
+            # Filter out rows where localTime is null, empty string, or whitespace only
+            df = df.dropna(subset=["localTime"])
+            df = df[df["localTime"].astype(str).str.strip() != ""]
+            filtered_count = len(df)
+            if initial_count != filtered_count:
+                tqdm.write(f"INFO: Filtered out {initial_count - filtered_count} rows with missing localTime values")
+
+        # Create datetime column from date and localTime if both columns exist
+        if "date" in df.columns and "localTime" in df.columns:
+            df["datetime"] = pd.to_datetime(df["date"].astype(str) + " " + df["localTime"].astype(str))
+
+        # Filter by date first - use datetime if available, otherwise use date
+        date_col = "datetime" if "datetime" in df.columns else "date"
+        df = self._filter_by_date(df, date_col, start_end_datetimes=self.start_end_datetimes)
 
         # filter out rows where step value is 0
         if "value" not in df.columns:
@@ -223,8 +352,8 @@ class Filter:
         # Filter by date first - need to check dateTime column
         if "dateTime" in df.columns:
             # Create temporary date column for filtering
-            df["temp_date"] = pd.to_datetime(df["dateTime"]).dt.date
-            df = self._filter_by_date(df, "temp_date")
+            df["temp_date"] = pd.to_datetime(df["dateTime"])
+            df = self._filter_by_date(df, "temp_date", start_end_datetimes=self.start_end_datetimes)
             df = df.drop("temp_date", axis=1)
 
         # Check if data is already processed (contains aggregated columns)
@@ -296,8 +425,8 @@ class Filter:
         # Filter by date first - check for start column
         if "start" in df.columns:
             # Create temporary date column for filtering
-            df["temp_date"] = pd.to_datetime(df["start"]).dt.date
-            df = self._filter_by_date(df, "temp_date")
+            df["temp_date"] = pd.to_datetime(df["start"])
+            df = self._filter_by_date(df, "temp_date", start_end_datetimes=self.start_end_datetimes)
             df = df.drop("temp_date", axis=1)
 
         # Separate start and stop datetime columns to date and time
@@ -332,11 +461,11 @@ class Filter:
         """
         # Filter by date first - check for date or datetime column
         if "date" in df.columns:
-            df = self._filter_by_date(df, "date")
+            df = self._filter_by_date(df, "date", start_end_datetimes=self.start_end_datetimes)
         elif "datetime" in df.columns:
             # Create temporary date column for filtering
             df["temp_date"] = pd.to_datetime(df["datetime"]).dt.date
-            df = self._filter_by_date(df, "temp_date")
+            df = self._filter_by_date(df, "temp_date", start_end_datetimes=self.start_end_datetimes)
             df = df.drop("temp_date", axis=1)
 
         # Filter out rows where breathing_rate is 0 or unreasonably low/high
@@ -425,11 +554,11 @@ class Filter:
         """
         # Filter by date first - check for date or datetime column
         if "date" in df.columns:
-            df = self._filter_by_date(df, "date")
+            df = self._filter_by_date(df, "date", start_end_datetimes=self.start_end_datetimes)
         elif "datetime" in df.columns:
             # Create temporary date column for filtering
             df["temp_date"] = pd.to_datetime(df["datetime"]).dt.date
-            df = self._filter_by_date(df, "temp_date")
+            df = self._filter_by_date(df, "temp_date", start_end_datetimes=self.start_end_datetimes)
             df = df.drop("temp_date", axis=1)
 
         # Filter out rows where hrv_value is 0 or unreasonably low/high
@@ -727,6 +856,40 @@ class Filter:
             else:
                 return None
 
+        elif "sleep_result" in csv_file:
+            # Sleep result data - aggregate by night
+            # Key columns to process from sleep_result data
+            sleep_columns = {
+                "sleepSpan_minutes": "sleep_span_minutes_daily",
+                "asleepDuration_minutes": "asleep_duration_minutes_daily",
+                "analysis_efficiencyPercent": "sleep_efficiency_percent_daily",
+                "analysis_continuityIndex": "sleep_continuity_index_daily",
+                "interruptions_totalDuration_minutes": "sleep_interruptions_duration_daily",
+                "interruptions_totalCount": "sleep_interruptions_count_daily",
+                "phaseDurations_rem_minutes": "sleep_rem_minutes_daily",
+                "phaseDurations_light_minutes": "sleep_light_minutes_daily",
+                "phaseDurations_deep_minutes": "sleep_deep_minutes_daily",
+                "phaseDurations_remPercentage": "sleep_rem_percentage_daily",
+                "phaseDurations_deepPercentage": "sleep_deep_percentage_daily",
+            }
+
+            # Check which columns are available in the data
+            available_columns = {k: v for k, v in sleep_columns.items() if k in df.columns}
+
+            if available_columns:
+                # Aggregate by night (one row per night per user)
+                agg_dict = {col: "first" for col in available_columns.keys()}
+
+                daily_df = df.groupby([date_col, "user_id"]).agg(agg_dict).reset_index()
+
+                # Rename columns for master file
+                daily_df.rename(columns=available_columns, inplace=True)
+
+                tqdm.write(f"INFO: Processed {len(available_columns)} sleep metrics for master file")
+            else:
+                tqdm.write(f"WARNING: No recognized sleep columns found in {csv_file}")
+                return None
+
         else:
             # For other file types, return None or basic processing
             tqdm.write(f"INFO: No specific master processing for {csv_file}")
@@ -840,6 +1003,9 @@ class Filter:
                 tqdm.write(f"ERROR: Failed to read {csv_file}: {e}. Skipping this file.")
                 continue
 
+            if self.filter_by_training and self.filter_by_training in ["training_only", "non_training_only"]:
+                self.start_end_datetimes = self._get_training_times(csv_file_path)
+
             # Process the data
             tqdm.write(f"INFO: Processing {csv_file}...")
             # check if the dataframe is empty
@@ -888,5 +1054,8 @@ class Filter:
                 else:
                     tqdm.write(f"WARNING: Skipping {csv_file}.")
                     continue
+            processed_df.to_csv(output_path, index=False)
+            tqdm.write(f"INFO: Processed and saved {csv_file} to {output_path}")
+
             processed_df.to_csv(output_path, index=False)
             tqdm.write(f"INFO: Processed and saved {csv_file} to {output_path}")
