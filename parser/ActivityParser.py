@@ -5,7 +5,8 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 import zipfile
-from tqdm import tqdm
+from tqdm.auto import tqdm
+
 
 class ActivityParser:
     def __init__(
@@ -29,16 +30,16 @@ class ActivityParser:
         self.username = None
         self.start_date = datetime.strptime(start_date, "%Y-%m-%d") if start_date else None
         self.end_date = datetime.strptime(end_date, "%Y-%m-%d") if end_date else None
-        print(f"Processing activity data from: {self.directory}")
+        tqdm.write(f"Processing activity data from: {self.directory}")
         self.process_all_files()
 
     def process_all_files(self):
         """Process all matched ZIP files and extract activity and 24/7 HR data."""
-        print(f"Looking for files matching pattern: {self.folder_pattern}")
+        tqdm.write(f"Looking for files matching pattern: {self.folder_pattern}")
         matching_zips = [str(zip_path) for zip_path in self.directory.glob(self.folder_pattern)]
-        print(f"Found {len(matching_zips)} matching ZIP files.")
+        tqdm.write(f"Found {len(matching_zips)} matching ZIP files.")
         if not matching_zips:
-            print("No matching ZIP files found.")
+            tqdm.write("No matching ZIP files found.")
             return
 
         for zip_path in tqdm(matching_zips, desc="Processing ZIP files"):
@@ -75,7 +76,7 @@ class ActivityParser:
                 if self.end_date and date_obj > self.end_date:
                     return
 
-            print(f"Parsing activity data for date: {date}")
+            tqdm.write(f"Parsing activity data for date: {date}")
             activity_entry = {
                 "username": self.username,
                 "date": date,
@@ -91,19 +92,19 @@ class ActivityParser:
 
             # Time series step data (many per day)
             if steps:
-                print(f"Processing step data for date: {date}")
+                tqdm.write(f"Processing step data for date: {date}")
                 step_df = pd.DataFrame(steps)
                 step_df["username"] = self.username
                 step_df["date"] = date  # associate samples with their day
                 # date has been filtered at this point, so we can use it directly
-                # reorder
-                step_df = step_df[
-                    ["username", "date"] + [col for col in step_df.columns if col not in ["username", "date"]]
-                ]
+                # # reorder
+                # step_df = step_df[
+                #     ["username", "date"] + [col for col in step_df.columns if col not in ["username", "date"]]
+                # ]
                 self.step_series_df = pd.concat([self.step_series_df, step_df], ignore_index=True)
 
         except Exception as e:
-            print(f"Error parsing activity file: {e}")
+            tqdm.write(f"Error parsing activity file: {e}")
 
     def parse_247ohr_file(self, data: dict):
         """Extracts 24/7 heart rate samples."""
@@ -123,7 +124,7 @@ class ActivityParser:
                 if not samples:
                     continue
 
-                print(f"Parsing 24/7 HR data for date: {date}")
+                tqdm.write(f"Parsing 24/7 HR data for date: {date}")
                 day_hr_df = pd.DataFrame(samples)
                 day_hr_df["userId"] = user_id
                 day_hr_df["date"] = date
@@ -142,4 +143,4 @@ class ActivityParser:
                 self.hr_247_df = pd.concat([self.hr_247_df, day_hr_df], ignore_index=True)
 
         except Exception as e:
-            print(f"Error parsing 24/7 HR file: {e}")
+            tqdm.write(f"Error parsing 24/7 HR file: {e}")

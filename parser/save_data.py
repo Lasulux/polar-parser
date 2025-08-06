@@ -20,11 +20,11 @@ def save_data_files(folder_name: str, data_dict: dict, output_dir: str, save_for
                 excel_path = os.path.join(full_path, f"{filename}.xlsx")
                 df.to_excel(excel_path, index=False)
             except Exception as e:
-                print(f"Error saving {filename}.xlsx to {full_path}: {e}")
+                tqdm.write(f"Error saving {filename}.xlsx to {full_path}: {e}")
 
         if save_format in ("csv", "both"):
             try:
                 csv_path = os.path.join(full_path, f"{filename}.csv")
                 df.to_csv(csv_path, index=False)
             except Exception as e:
-                print(f"Error saving {filename}.csv to {full_path}: {e}")
+                tqdm.write(f"Error saving {filename}.csv to {full_path}: {e}")

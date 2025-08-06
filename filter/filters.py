@@ -1,28 +1,165 @@
 import re
 import os
 import pandas as pd
-from tqdm import tqdm
-import logging
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from tqdm.auto import tqdm
+from typing import Optional
+from datetime import datetime
 
 
 class Filter:
-    def __init__(self, input_dir: str, output_dir: str, overwrite: bool = False):
+    # Minimum date threshold - filter out data earlier than this date
+    MIN_DATE = pd.Timestamp("2020-01-01")
+
+    def __init__(
+        self,
+        input_dir: str,
+        output_dir: str,
+        overwrite: bool = False,
+        filter_by_training: bool = False,
+        convert_training_to_days: bool = True,
+    ):
+        """
+        Initialize the Filter class.
+        """
         self.input_dir = input_dir
         self.output_dir = output_dir
         self.overwrite = overwrite
+        self.filter_by_training = filter_by_training
+        self.start_end_datetimes = []
+        self.convert_training_to_days = convert_training_to_days  # Convert training times to whole days
         # Ensure directories exist
         try:
             if not os.path.exists(self.input_dir):
-                logger.error(f"Input directory does not exist: {self.input_dir}")
+                tqdm.write(f"ERROR: Input directory does not exist: {self.input_dir}")
             if not os.path.exists(self.output_dir):
-                logger.info(f"Creating output directory: {self.output_dir}")
+                tqdm.write(f"INFO: Creating output directory: {self.output_dir}")
                 os.makedirs(self.output_dir)
         except Exception as e:
-            logger.error(f"Error creating directories: {e}")
+            tqdm.write(f"ERROR: Error creating directories: {e}")
             raise ValueError(f"Invalid directory paths: {e}")
+
+    def _get_training_times(self, csv_file_path) -> list[dict]:
+        # check if the file is training_summary.csv:
+        if not "training_summary.csv" in csv_file_path:
+            # check if the parent folder contains a training_summary.csv
+            parent_dir = os.path.dirname(csv_file_path)
+            if "training_summary.csv" in os.listdir(parent_dir):
+                csv_file_path = os.path.join(parent_dir, "training_summary.csv")
+
+        # open and load training_summary.csv
+        try:
+            df = pd.read_csv(csv_file_path)
+            if df.empty:
+                # tqdm.write(f"WARNING: Training summary file is empty: {csv_file_path}")
+                # at this point we should filter out everything. (for training. Or keep everything for non_training.)
+                # dirty workaround: give a range that probably does not contain anything
+                return [{"start": "1942-01-01", "end": "1942-01-02"}]
+
+            # Extract start and end times from the training summary
+            if "start" in df.columns and "stop" in df.columns:
+                # optional, and sport is OTHER_INDOOR
+                if "sport" in df.columns:
+                    df = df[df["sport"] == "OTHER_INDOOR"].copy()
+
+                if self.convert_training_to_days:
+                    for _, row in df.iterrows():
+                        start = row["start"]
+                        end = row["stop"]
+                        start = datetime.strptime(start, "%Y-%m-%d %H:%M:%S.%f")
+                        start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+                        start = start.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                        end = datetime.strptime(end, "%Y-%m-%d %H:%M:%S.%f")
+                        end = end.replace(hour=23, minute=59, second=59, microsecond=99)
+                        end = end.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                        self.start_end_datetimes.append({"start": start, "end": end})
+                else:
+                    self.start_end_datetimes = [
+                        {"start": row["start"], "end": row["stop"]} for _, row in df.iterrows()
+                    ]
+
+                return self.start_end_datetimes
+            else:
+                tqdm.write(f"WARNING: No start/stop columns found in {csv_file_path}")
+                return []
+        except Exception as e:
+            tqdm.write(f"ERROR: Failed to read training summary file {csv_file_path}: {e}")
+            return []
+
+    def _filter_by_date(
+        self, df: pd.DataFrame, date_column: str, start_end_datetimes: list[dict] = []
+    ) -> pd.DataFrame:
+        """
+        Filter DataFrame to keep only rows within specified date ranges.
+        Args:
+            df (pd.DataFrame): DataFrame to filter.
+            date_column (str): Name of the date column to filter on.
+            start_end_datetimes: Optional list of dicts with 'start' and 'end' keys for date ranges.
+        Returns:
+            pd.DataFrame: Filtered DataFrame.
+        """
+        if date_column not in df.columns:
+            return df
+
+        try:
+            # Convert date column to datetime if it's not already
+            if not pd.api.types.is_datetime64_any_dtype(df[date_column]):
+                df[date_column] = pd.to_datetime(df[date_column])
+
+            initial_count = len(df)
+
+            # Always apply MIN_DATE filter first
+            df = df[df[date_column] >= self.MIN_DATE].copy()
+
+            if self.filter_by_training == "training_only":
+                # If date ranges are provided, filter to keep only rows within those ranges
+                if start_end_datetimes:
+                    mask = pd.Series([False] * len(df), index=df.index)
+
+                    for date_range in start_end_datetimes:
+                        start_date = pd.to_datetime(date_range.get("start", self.MIN_DATE))
+                        end_date = date_range.get("end")
+                        if end_date is not None:
+                            end_date = pd.to_datetime(end_date)
+                            range_mask = (df[date_column] >= start_date) & (df[date_column] <= end_date)
+                            mask = mask | range_mask
+                        else:
+                            tqdm.write(
+                                f"WARNING: No end date provided for range starting at {start_date}. Skipping range."
+                            )
+                    df = df[mask].copy()
+
+            elif self.filter_by_training == "non_training_only":
+                # If date ranges are provided, filter to keep only rows outside those ranges
+                if start_end_datetimes:
+                    mask = pd.Series([True] * len(df), index=df.index)
+
+                    for date_range in start_end_datetimes:
+                        start_date = pd.to_datetime(date_range.get("start", self.MIN_DATE))
+                        end_date = date_range.get("end")
+                        if end_date is not None:
+                            end_date = pd.to_datetime(end_date)
+                            range_mask = (df[date_column] >= start_date) & (df[date_column] <= end_date)
+                            mask = mask & ~range_mask
+                        else:
+                            tqdm.write(
+                                f"WARNING: No end date provided for range starting at {start_date}. Skipping range."
+                            )
+                    df = df[mask].copy()
+
+            filtered_count = len(df)
+            if initial_count != filtered_count:
+                if not start_end_datetimes:
+                    tqdm.write(
+                        f"INFO: Filtered out {initial_count - filtered_count} rows earlier than {self.MIN_DATE.strftime('%Y-%m-%d')} from {date_column}"
+                    )
+                else:
+                    tqdm.write(
+                        f"INFO: Filtered out {initial_count - filtered_count} rows outside {len(start_end_datetimes)} specified date ranges (after MIN_DATE filter) from {date_column}"
+                    )
+            return df
+        except Exception as e:
+            tqdm.write(f"WARNING: Error filtering by date in column {date_column}: {e}")
+            return df
 
     def read_csv(self, file_path: str) -> pd.DataFrame:
         """
@@ -34,10 +171,10 @@ class Filter:
         """
         try:
             df = pd.read_csv(file_path)
-            logger.info(f"Successfully read {file_path}")
+            tqdm.write(f"INFO: Successfully read {file_path}")
             return df
         except Exception as e:
-            logger.error(f"Error reading {file_path}: {e}")
+            tqdm.write(f"ERROR: Error reading {file_path}: {e}")
             raise ValueError(f"Could not read CSV file: {e}")
 
     def activity_hr_table(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -48,9 +185,22 @@ class Filter:
         Returns:
             pd.DataFrame: Processed DataFrame with relevant columns.
         """
+
+        # Create datetime column from date and timeOfDay if both columns exist
+        if "date" in df.columns and "timeOfDay" in df.columns:
+            df["datetime"] = pd.to_datetime(df["date"].astype(str) + " " + df["timeOfDay"].astype(str))
+
+        # Filter by date first
+        df = self._filter_by_date(df, "datetime", start_end_datetimes=self.start_end_datetimes)
+
+        # Check if data is already processed (contains aggregated columns)
+        if "heartRate_mean_overall" in df.columns:
+            # Data is already processed, return as is
+            return df
+
         # Filter out rows where heartRate == 0
         if "heartRate" in df.columns:
-            df = df[df["heartRate"] != 0]
+            df = df[df["heartRate"] != 0].copy()
             mean_hr = df["heartRate"].mean()
             median_hr = df["heartRate"].median()
             min_hr = df["heartRate"].min()
@@ -93,9 +243,12 @@ class Filter:
         Returns:
             pd.DataFrame: Processed DataFrame with relevant columns.
         """
+        # Filter by date first
+        df = self._filter_by_date(df, "date", start_end_datetimes=self.start_end_datetimes)
+
         # Filter out rows where both calories and step_total are 0
         if "calories" in df.columns and "step_total" in df.columns:
-            df = df[~((df["calories"] == 0) & (df["step_total"] == 0))]
+            df = df[~((df["calories"] == 0) & (df["step_total"] == 0))].copy()
 
             # Calculate overall statistics ignoring 0 values
             calories_nonzero = df.loc[df["calories"] != 0, "calories"]
@@ -123,8 +276,38 @@ class Filter:
         Returns:
             pd.DataFrame: Processed DataFrame with relevant columns.
         """
+
+        # Check if data is already processed (contains aggregated columns)
+        if "step_count_mean_daily" in df.columns:
+            # Data is already processed, return as is
+            return df
+
+        # Filter out rows with missing localTime values
+        if "localTime" in df.columns:
+            initial_count = len(df)
+            # Filter out rows where localTime is null, empty string, or whitespace only
+            df = df.dropna(subset=["localTime"])
+            df = df[df["localTime"].astype(str).str.strip() != ""]
+            filtered_count = len(df)
+            if initial_count != filtered_count:
+                tqdm.write(f"INFO: Filtered out {initial_count - filtered_count} rows with missing localTime values")
+
+        # Create datetime column from date and localTime if both columns exist
+        if "date" in df.columns and "localTime" in df.columns:
+            df["datetime"] = pd.to_datetime(df["date"].astype(str) + " " + df["localTime"].astype(str))
+
+        # Filter by date first - use datetime if available, otherwise use date
+        date_col = "datetime" if "datetime" in df.columns else "date"
+        df = self._filter_by_date(df, date_col, start_end_datetimes=self.start_end_datetimes)
+
         # filter out rows where step value is 0
-        df = df[df["value"] > 0]
+        if "value" not in df.columns:
+            tqdm.write(
+                f"WARNING: Expected 'value' column not found in step series data. Available columns: {df.columns.tolist()}"
+            )
+            return df
+
+        df = df[df["value"] > 0].copy()
 
         # Ensure date column is datetime type
         if "date" in df.columns:
@@ -166,8 +349,26 @@ class Filter:
         Returns:
             pd.DataFrame: Processed DataFrame with relevant columns.
         """
+        # Filter by date first - need to check dateTime column
+        if "dateTime" in df.columns:
+            # Create temporary date column for filtering
+            df["temp_date"] = pd.to_datetime(df["dateTime"])
+            df = self._filter_by_date(df, "temp_date", start_end_datetimes=self.start_end_datetimes)
+            df = df.drop("temp_date", axis=1)
+
+        # Check if data is already processed (contains aggregated columns)
+        if "heartRate_mean_hourly" in df.columns:
+            # Data is already processed, return as is
+            return df
+
         # Filter out rows where heartRate is 0
-        df = df[df["heartRate"] > 0]
+        if "heartRate" not in df.columns:
+            tqdm.write(
+                f"WARNING: Expected 'heartRate' column not found in training HR samples data. Available columns: {df.columns.tolist()}"
+            )
+            return df
+
+        df = df[df["heartRate"] > 0].copy()
 
         # separate dateTime into date and time columns
         if "dateTime" in df.columns:
@@ -221,6 +422,13 @@ class Filter:
         Returns:
             pd.DataFrame: Processed DataFrame with relevant columns.
         """
+        # Filter by date first - check for start column
+        if "start" in df.columns:
+            # Create temporary date column for filtering
+            df["temp_date"] = pd.to_datetime(df["start"])
+            df = self._filter_by_date(df, "temp_date", start_end_datetimes=self.start_end_datetimes)
+            df = df.drop("temp_date", axis=1)
+
         # Separate start and stop datetime columns to date and time
         if "start" in df.columns:
             df["start_date"] = pd.to_datetime(df["start"]).dt.date
@@ -243,6 +451,495 @@ class Filter:
 
         return df
 
+    def nightly_recovery_breathing_data_table(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Process nightly recovery breathing data.
+        Args:
+            df (pd.DataFrame): DataFrame containing nightly recovery breathing data.
+        Returns:
+            pd.DataFrame: Processed DataFrame with relevant columns.
+        """
+        # Filter by date first - check for date or datetime column
+        if "date" in df.columns:
+            df = self._filter_by_date(df, "date", start_end_datetimes=self.start_end_datetimes)
+        elif "datetime" in df.columns:
+            # Create temporary date column for filtering
+            df["temp_date"] = pd.to_datetime(df["datetime"]).dt.date
+            df = self._filter_by_date(df, "temp_date", start_end_datetimes=self.start_end_datetimes)
+            df = df.drop("temp_date", axis=1)
+
+        # Filter out rows where breathing_rate is 0 or unreasonably low/high
+        if "breathing_rate" in df.columns:
+            df = df[
+                (df["breathing_rate"] > 0) & (df["breathing_rate"] < 50)
+            ].copy()  # Reasonable breathing rate range #TODO: Adjust range based on domain knowledge
+
+            if df.empty:
+                return df
+
+            # Separate datetime into date and hour columns for aggregation
+            if "datetime" in df.columns:
+                df["datetime"] = pd.to_datetime(df["datetime"])
+                df["date_only"] = df["datetime"].dt.date
+                df["hour"] = df["datetime"].dt.hour
+
+            if "date" in df.columns:
+                df.rename(columns={"date": "date_of_night"}, inplace=True)
+
+            # Aggregate into hourly rows if date and hour columns exist
+            if "date_of_night" in df.columns and "hour" in df.columns:
+                # Hourly aggregation per night
+                hourly = (
+                    df.groupby(["date_of_night", "hour"])["breathing_rate"]
+                    .agg(
+                        breathing_rate_mean_hourly="mean",
+                        breathing_rate_median_hourly="median",
+                        breathing_rate_min_hourly="min",
+                        breathing_rate_max_hourly="max",
+                        breathing_rate_std_hourly="std",
+                        breathing_rate_count_hourly="count",
+                    )
+                    .reset_index()
+                )
+
+                # Add overall statistics columns
+                hourly["breathing_rate_mean_overall"] = df["breathing_rate"].mean()
+                hourly["breathing_rate_median_overall"] = df["breathing_rate"].median()
+                hourly["breathing_rate_min_overall"] = df["breathing_rate"].min()
+                hourly["breathing_rate_max_overall"] = df["breathing_rate"].max()
+                hourly["breathing_rate_std_overall"] = df["breathing_rate"].std()
+
+                # Add daily statistics columns
+                daily_stats = df.groupby("date_of_night")["breathing_rate"].agg(
+                    breathing_rate_mean_daily="mean",
+                    breathing_rate_median_daily="median",
+                    breathing_rate_min_daily="min",
+                    breathing_rate_max_daily="max",
+                    breathing_rate_std_daily="std",
+                    breathing_rate_count_daily="count",
+                )
+                # Map daily stats to hourly rows
+                for col in daily_stats.columns:
+                    hourly[col] = hourly["date_of_night"].map(daily_stats[col])
+
+                # Add daily range (max - min)
+                hourly["breathing_rate_range_daily"] = (
+                    hourly["breathing_rate_max_daily"] - hourly["breathing_rate_min_daily"]
+                )
+
+                df = hourly
+            else:
+                # If no datetime column, just add overall statistics
+                mean_br = df["breathing_rate"].mean()
+                median_br = df["breathing_rate"].median()
+                min_br = df["breathing_rate"].min()
+                max_br = df["breathing_rate"].max()
+                std_br = df["breathing_rate"].std()
+
+                df["breathing_rate_mean_overall"] = mean_br
+                df["breathing_rate_median_overall"] = median_br
+                df["breathing_rate_min_overall"] = min_br
+                df["breathing_rate_max_overall"] = max_br
+                df["breathing_rate_std_overall"] = std_br
+
+        return df
+
+    def nightly_recovery_hrv_data_table(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Process nightly recovery HRV data.
+        Args:
+            df (pd.DataFrame): DataFrame containing nightly recovery HRV data.
+        Returns:
+            pd.DataFrame: Processed DataFrame with relevant columns.
+        """
+        # Filter by date first - check for date or datetime column
+        if "date" in df.columns:
+            df = self._filter_by_date(df, "date", start_end_datetimes=self.start_end_datetimes)
+        elif "datetime" in df.columns:
+            # Create temporary date column for filtering
+            df["temp_date"] = pd.to_datetime(df["datetime"]).dt.date
+            df = self._filter_by_date(df, "temp_date", start_end_datetimes=self.start_end_datetimes)
+            df = df.drop("temp_date", axis=1)
+
+        # Filter out rows where hrv_value is 0 or unreasonably low/high
+        if "hrv_value" in df.columns:
+            df = df[
+                (df["hrv_value"] > 0) & (df["hrv_value"] < 200)
+            ].copy()  # Reasonable HRV range in milliseconds #TODO: Adjust range based on domain knowledge
+
+            if df.empty:
+                return df
+
+            # Separate datetime into date and hour columns for aggregation
+            if "datetime" in df.columns:
+                df["datetime"] = pd.to_datetime(df["datetime"])
+                df["date_only"] = df["datetime"].dt.date
+                df["hour"] = df["datetime"].dt.hour
+
+            if "date" in df.columns:
+                df.rename(columns={"date": "date_of_night"}, inplace=True)
+
+            # Aggregate into hourly rows if date and hour columns exist
+            if "date_of_night" in df.columns and "hour" in df.columns:
+                # Hourly aggregation per night
+                hourly = (
+                    df.groupby(["date_of_night", "hour"])["hrv_value"]
+                    .agg(
+                        hrv_value_mean_hourly="mean",
+                        hrv_value_median_hourly="median",
+                        hrv_value_min_hourly="min",
+                        hrv_value_max_hourly="max",
+                        hrv_value_std_hourly="std",
+                        hrv_value_count_hourly="count",
+                    )
+                    .reset_index()
+                )
+
+                # Add overall statistics columns
+                hourly["hrv_value_mean_overall"] = df["hrv_value"].mean()
+                hourly["hrv_value_median_overall"] = df["hrv_value"].median()
+                hourly["hrv_value_min_overall"] = df["hrv_value"].min()
+                hourly["hrv_value_max_overall"] = df["hrv_value"].max()
+                hourly["hrv_value_std_overall"] = df["hrv_value"].std()
+
+                # Add daily statistics columns
+                daily_stats = df.groupby("date_of_night")["hrv_value"].agg(
+                    hrv_value_mean_daily="mean",
+                    hrv_value_median_daily="median",
+                    hrv_value_min_daily="min",
+                    hrv_value_max_daily="max",
+                    hrv_value_std_daily="std",
+                    hrv_value_count_daily="count",
+                )
+                # Map daily stats to hourly rows
+                for col in daily_stats.columns:
+                    hourly[col] = hourly["date_of_night"].map(daily_stats[col])
+
+                # Add daily range (max - min)
+                hourly["hrv_value_range_daily"] = hourly["hrv_value_max_daily"] - hourly["hrv_value_min_daily"]
+
+                df = hourly
+            else:
+                # If no datetime column, just add overall statistics
+                mean_hrv = df["hrv_value"].mean()
+                median_hrv = df["hrv_value"].median()
+                min_hrv = df["hrv_value"].min()
+                max_hrv = df["hrv_value"].max()
+                std_hrv = df["hrv_value"].std()
+
+                df["hrv_value_mean_overall"] = mean_hrv
+                df["hrv_value_median_overall"] = median_hrv
+                df["hrv_value_min_overall"] = min_hrv
+                df["hrv_value_max_overall"] = max_hrv
+                df["hrv_value_std_overall"] = std_hrv
+
+        return df
+
+    #################################################
+    #              Master File Creation             #
+    #################################################
+
+    def create_master_file(self):
+        """
+        Create a master file combining all processed data at the daily user level.
+        This creates a comprehensive dataset where each row represents one user-day
+        with aggregated statistics from all available data sources.
+        """
+        tqdm.write("INFO: Creating master file with combined daily user data...")
+
+        # Dictionary to store dataframes for each data type
+        dataframes = {}
+
+        # Get all items from output directory
+        items = os.listdir(self.output_dir)
+        folders = [item for item in items if os.path.isdir(os.path.join(self.output_dir, item))]
+
+        if not folders:
+            tqdm.write("WARNING: No user folders found in output directory. Looking for direct CSV files.")
+            folders = ["."]  # Process files in root output directory
+        else:
+            tqdm.write(f"INFO: Found {len(folders)} user folders: {folders[:5]}...")  # Show first 5
+
+        # Process each user folder
+        for folder in tqdm(folders, desc="Processing user data"):
+            if folder == ".":
+                folder_path = self.output_dir
+                user_id = "unknown"
+            else:
+                folder_path = os.path.join(self.output_dir, folder)
+                user_id = folder
+
+            tqdm.write(f"INFO: Processing user {user_id}...")
+
+            # Get all CSV files in the folder
+            csv_files = [f for f in os.listdir(folder_path) if f.endswith(".csv")]
+
+            for csv_file in csv_files:
+                csv_file_path = os.path.join(folder_path, csv_file)
+
+                try:
+                    df = pd.read_csv(csv_file_path)
+                    if df.empty:
+                        tqdm.write(f"WARNING: Empty file {csv_file} for user {user_id}")
+                        continue
+
+                    # Add user_id column if not present
+                    if "user_id" not in df.columns:
+                        df["user_id"] = user_id
+
+                    # Process different file types for daily aggregation
+                    daily_df = self._process_for_master(df, csv_file, user_id)
+
+                    if daily_df is not None and not daily_df.empty:
+                        # Store in dataframes dictionary
+                        file_type = csv_file.replace(".csv", "")
+                        if file_type not in dataframes:
+                            dataframes[file_type] = []
+                        dataframes[file_type].append(daily_df)
+
+                except Exception as e:
+                    tqdm.write(f"ERROR: Failed to process {csv_file} for user {user_id}: {e}")
+                    continue
+
+        # Combine all data types
+        master_df = self._combine_daily_data(dataframes)
+
+        if master_df is not None and not master_df.empty:
+            # Save master file
+            master_file_path = os.path.join(self.output_dir, "master_daily_data.csv")
+            # if os.path.exists(master_file_path) and not self.overwrite:
+            #     tqdm.write(f"WARNING: Master file {master_file_path} already exists. Skipping.")
+            #     return
+
+            master_df.to_csv(master_file_path, index=False)
+            tqdm.write(f"INFO: Master file created successfully: {master_file_path}")
+            tqdm.write(f"INFO: Master file contains {len(master_df)} rows and {len(master_df.columns)} columns")
+        else:
+            tqdm.write("ERROR: No data to create master file")
+
+    def _process_for_master(self, df: pd.DataFrame, csv_file: str, user_id: str) -> Optional[pd.DataFrame]:
+        """
+        Process individual file data for master file creation.
+        Returns daily aggregated data for each file type.
+        """
+        # Extract date information and prepare for daily aggregation
+        date_col = None
+
+        # Find the appropriate date column
+        if "date" in df.columns:
+            date_col = "date"
+        elif "start_date" in df.columns:
+            date_col = "start_date"
+        elif "date_of_night" in df.columns:
+            date_col = "date_of_night"
+        elif "night" in df.columns:
+            date_col = "night"
+        elif "start" in df.columns:
+            # Extract date from datetime
+            df["date"] = pd.to_datetime(df["start"]).dt.date
+            date_col = "date"
+
+        if date_col is None:
+            tqdm.write(f"WARNING: No date column found in {csv_file} for user {user_id}")
+            return None
+
+        # Convert date column to datetime if needed
+        try:
+            df[date_col] = pd.to_datetime(df[date_col]).dt.date
+        except:
+            pass
+
+        # Process based on file type
+        if "activity_summary" in csv_file:
+            # Activity summary is already daily
+            daily_df = df.copy()
+            # Select relevant columns and rename for master
+            cols_to_keep = [date_col, "user_id", "calories", "step_total"]
+            if "calories_mean_overall" in df.columns:
+                cols_to_keep.extend(["calories_mean_overall", "step_total_mean_overall"])
+            daily_df = daily_df[cols_to_keep].copy()
+            daily_df.rename(
+                columns={
+                    "calories": "activity_calories_daily",
+                    "step_total": "activity_steps_daily",
+                    "calories_mean_overall": "activity_calories_mean_overall",
+                    "step_total_mean_overall": "activity_steps_mean_overall",
+                },
+                inplace=True,
+            )
+
+        elif "step_series" in csv_file:
+            # Step series is already daily aggregated
+            daily_df = df.copy()
+            daily_df.rename(
+                columns={
+                    "step_count_sum_daily": "step_series_total_daily",
+                    "step_count_mean_daily": "step_series_mean_daily",
+                },
+                inplace=True,
+            )
+
+        elif "sleep_scores" in csv_file:
+            # Sleep scores are already daily
+            daily_df = df.copy()
+            cols_to_keep = [date_col, "user_id", "sleepScore", "continuityScore", "efficiencyScore"]
+            if all(col in df.columns for col in cols_to_keep):
+                daily_df = daily_df[cols_to_keep].copy()
+
+        elif "training_summary" in csv_file:
+            # Aggregate training data by day
+            if df.empty:
+                return None
+            grouped = (
+                df.groupby([date_col, "user_id"])
+                .agg({"duration_sec": ["sum", "count", "mean"], "calories": ["sum", "mean"], "hr_avg": "mean"})
+                .reset_index()
+            )
+            # Flatten column names
+            grouped.columns = [f"{col[0]}_{col[1]}" if col[1] else col[0] for col in grouped.columns]
+            daily_df = grouped
+            daily_df.rename(
+                columns={
+                    "duration_sec_sum": "training_duration_total_daily",
+                    "duration_sec_count": "training_sessions_daily",
+                    "duration_sec_mean": "training_duration_mean_daily",
+                    "calories_sum": "training_calories_total_daily",
+                    "calories_mean": "training_calories_mean_daily",
+                    "hr_avg_mean": "training_hr_avg_daily",
+                },
+                inplace=True,
+            )
+
+        elif "activity_hr" in csv_file or "training_hr_samples" in csv_file:
+            # Aggregate heart rate data by day
+            if "heartRate_mean_daily" in df.columns:
+                # Data is already aggregated daily
+                daily_df = (
+                    df.groupby([date_col, "user_id"])
+                    .agg(
+                        {
+                            "heartRate_mean_daily": "first",
+                            "heartRate_max_daily": "first",
+                            "heartRate_min_daily": "first",
+                            "heartRate_std_daily": "first",
+                        }
+                    )
+                    .reset_index()
+                )
+                prefix = "activity_hr" if "activity_hr" in csv_file else "training_hr"
+                daily_df.rename(
+                    columns={
+                        "heartRate_mean_daily": f"{prefix}_mean_daily",
+                        "heartRate_max_daily": f"{prefix}_max_daily",
+                        "heartRate_min_daily": f"{prefix}_min_daily",
+                        "heartRate_std_daily": f"{prefix}_std_daily",
+                    },
+                    inplace=True,
+                )
+            else:
+                return None
+
+        elif "nightly_recovery" in csv_file:
+            # Recovery data - aggregate by night
+            if "breathing_rate_mean_daily" in df.columns:
+                daily_df = (
+                    df.groupby([date_col, "user_id"])
+                    .agg({"breathing_rate_mean_daily": "first", "breathing_rate_std_daily": "first"})
+                    .reset_index()
+                )
+            elif "hrv_value_mean_daily" in df.columns:
+                daily_df = (
+                    df.groupby([date_col, "user_id"])
+                    .agg({"hrv_value_mean_daily": "first", "hrv_value_std_daily": "first"})
+                    .reset_index()
+                )
+            else:
+                return None
+
+        elif "sleep_result" in csv_file:
+            # Sleep result data - aggregate by night
+            # Key columns to process from sleep_result data
+            sleep_columns = {
+                "sleepSpan_minutes": "sleep_span_minutes_daily",
+                "asleepDuration_minutes": "asleep_duration_minutes_daily",
+                "analysis_efficiencyPercent": "sleep_efficiency_percent_daily",
+                "analysis_continuityIndex": "sleep_continuity_index_daily",
+                "interruptions_totalDuration_minutes": "sleep_interruptions_duration_daily",
+                "interruptions_totalCount": "sleep_interruptions_count_daily",
+                "phaseDurations_rem_minutes": "sleep_rem_minutes_daily",
+                "phaseDurations_light_minutes": "sleep_light_minutes_daily",
+                "phaseDurations_deep_minutes": "sleep_deep_minutes_daily",
+                "phaseDurations_remPercentage": "sleep_rem_percentage_daily",
+                "phaseDurations_deepPercentage": "sleep_deep_percentage_daily",
+            }
+
+            # Check which columns are available in the data
+            available_columns = {k: v for k, v in sleep_columns.items() if k in df.columns}
+
+            if available_columns:
+                # Aggregate by night (one row per night per user)
+                agg_dict = {col: "first" for col in available_columns.keys()}
+
+                daily_df = df.groupby([date_col, "user_id"]).agg(agg_dict).reset_index()
+
+                # Rename columns for master file
+                daily_df.rename(columns=available_columns, inplace=True)
+
+                tqdm.write(f"INFO: Processed {len(available_columns)} sleep metrics for master file")
+            else:
+                tqdm.write(f"WARNING: No recognized sleep columns found in {csv_file}")
+                return None
+
+        else:
+            # For other file types, return None or basic processing
+            tqdm.write(f"INFO: No specific master processing for {csv_file}")
+            return None
+
+        # Ensure we have the date column properly named
+        if date_col != "date":
+            daily_df.rename(columns={date_col: "date"}, inplace=True)
+
+        return daily_df
+
+    def _combine_daily_data(self, dataframes: dict) -> Optional[pd.DataFrame]:
+        """
+        Combine all daily dataframes into a single master dataframe.
+        """
+        if not dataframes:
+            tqdm.write("ERROR: No dataframes to combine")
+            return None
+
+        # Start with the first available dataframe as base
+        master_df = None
+
+        for file_type, df_list in dataframes.items():
+            if not df_list:
+                continue
+
+            # Combine all dataframes of this type
+            combined_df = pd.concat(df_list, ignore_index=True)
+
+            if master_df is None:
+                master_df = combined_df
+            else:
+                # Merge on date and user_id
+                master_df = pd.merge(
+                    master_df, combined_df, on=["date", "user_id"], how="outer", suffixes=("", f"_{file_type}")
+                )
+
+        if master_df is not None:
+            # Sort by user_id and date
+            master_df = master_df.sort_values(["user_id", "date"]).reset_index(drop=True)
+
+            # Convert date back to string for better readability
+            master_df["date"] = pd.to_datetime(master_df["date"]).dt.strftime("%Y-%m-%d")
+
+            tqdm.write(
+                f"INFO: Combined data for {master_df['user_id'].nunique()} users across {master_df['date'].nunique()} unique dates"
+            )
+
+        return master_df
+
     #################################################
     #                  Run Method                   #
     #################################################
@@ -258,8 +955,8 @@ class Filter:
         # Check for folders
         folders = [item for item in items if os.path.isdir(os.path.join(self.input_dir, item))]
         if folders:
-            logger.info(f"Found {len(folders)} folders in {self.input_dir}: {folders}")
-            logger.info(f"Will process files in each folder.")
+            tqdm.write(f"INFO: Found {len(folders)} folders in {self.input_dir}: {folders}")
+            tqdm.write(f"INFO: Will process files in each folder.")
             csv_files = []
             for folder in folders:
                 folder_path = os.path.join(self.input_dir, folder)
@@ -272,12 +969,12 @@ class Filter:
                     ]
                 )
         else:
-            logger.warning(f"No folders found in {self.input_dir}. Processing files directly.")
+            tqdm.write(f"WARNING: No folders found in {self.input_dir}. Processing files directly.")
             # Get all CSV files from input directory
             csv_files = [f for f in items if f.endswith(".csv") and os.path.isfile(os.path.join(self.input_dir, f))]
 
         if not csv_files:
-            logger.error(f"No CSV files found.")
+            tqdm.write(f"ERROR: No CSV files found.")
             raise ValueError("No CSV files found in the input directory.")
 
         # sort csv_files by name
@@ -288,11 +985,12 @@ class Filter:
 
             # Check csv file is named correctly (known format)
             if not re.match(
-                r".*(activity_hr|activity_summary|step_series|training_hr_samples|training_summary)\.csv$", csv_file
+                r".*(activity_hr|activity_summary|step_series|training_hr_samples|training_summary|hypnogram|nightly_recovery_breathing_data|nightly_recovery_hrv_data|nightly_recovery_summary|sleep_result|sleep_scores|sleep_wake_samples)\.csv$",
+                csv_file,
             ):
-                logger.error(
-                    f"Invalid CSV file name: {csv_file}. "
-                    f"Expected format: activity_hr.csv, activity_summary.csv, step_series.csv, training_hr_samples.csv, or training_summary.csv. "
+                tqdm.write(
+                    f"ERROR: Invalid CSV file name: {csv_file}. "
+                    f"Expected format: activity_hr.csv, activity_summary.csv, step_series.csv, training_hr_samples.csv, training_summary.csv, hypnogram.csv, nightly_recovery_breathing_data.csv, nightly_recovery_hrv_data.csv, nightly_recovery_summary.csv, sleep_result.csv, sleep_scores.csv, or sleep_wake_samples.csv. "
                     f" Skipping this file. "
                 )
                 continue
@@ -302,16 +1000,19 @@ class Filter:
                 csv_file_path = os.path.join(self.input_dir, csv_file)
                 df = self.read_csv(csv_file_path)
             except Exception as e:
-                logger.error(f"Failed to read {csv_file}: {e}. Skipping this file.")
+                tqdm.write(f"ERROR: Failed to read {csv_file}: {e}. Skipping this file.")
                 continue
 
+            if self.filter_by_training and self.filter_by_training in ["training_only", "non_training_only"]:
+                self.start_end_datetimes = self._get_training_times(csv_file_path)
+
             # Process the data
-            logger.info(f"Processing {csv_file}...")
+            tqdm.write(f"INFO: Processing {csv_file}...")
             # check if the dataframe is empty
             # check if the csv_file matches known formats and call the appropriate processing function
+            processed_df = df
             if df.empty:
-                logger.warning(f"DataFrame is empty for {csv_file}. No processing will be done.")
-                processed_df = df
+                tqdm.write(f"WARNING: DataFrame is empty for {csv_file}. No processing will be done.")
             elif "activity_hr" in csv_file:
                 processed_df = self.activity_hr_table(df)
             elif "activity_summary" in csv_file:
@@ -322,8 +1023,22 @@ class Filter:
                 processed_df = self.training_hr_samples_table(df)
             elif "training_summary" in csv_file:
                 processed_df = self.training_summary_table(df)
+            elif "hypnogram" in csv_file:
+                tqdm.write(f"INFO: Hypnogram file {csv_file} detected. No processing needed.")
+            elif "nightly_recovery_breathing_data" in csv_file:
+                processed_df = self.nightly_recovery_breathing_data_table(df)
+            elif "nightly_recovery_hrv_data" in csv_file:
+                processed_df = self.nightly_recovery_hrv_data_table(df)
+            elif "nightly_recovery_summary" in csv_file:
+                tqdm.write(f"INFO: Nightly recovery summary file {csv_file} detected. No processing needed.")
+            elif "sleep_result" in csv_file:
+                tqdm.write(f"INFO: Sleep result file {csv_file} detected. No processing needed.")
+            elif "sleep_scores" in csv_file:
+                tqdm.write(f"INFO: Sleep scores file {csv_file} detected. No processing needed.")
+            elif "sleep_wake_samples" in csv_file:
+                tqdm.write(f"INFO: Sleep wake samples file {csv_file} detected. No processing needed.")
             else:
-                logger.warning(f"No specific processing function for {csv_file}. Skipping this file.")
+                tqdm.write(f"WARNING: No specific processing function for {csv_file}. Skipping this file.")
                 continue
 
             # Save the processed data
@@ -333,11 +1048,14 @@ class Filter:
                 os.makedirs(os.path.dirname(output_path), exist_ok=True)
             # check if the output file already exists
             if os.path.isfile(output_path):
-                logger.warning(f"Output file {output_path} already exists.")
+                tqdm.write(f"WARNING: Output file {output_path} already exists.")
                 if self.overwrite:
-                    logger.warning(f"Overwriting {output_path}.")
+                    tqdm.write(f"WARNING: Overwriting {output_path}.")
                 else:
-                    logger.warning(f"Skipping {csv_file}.")
+                    tqdm.write(f"WARNING: Skipping {csv_file}.")
                     continue
             processed_df.to_csv(output_path, index=False)
-            logger.info(f"Processed and saved {csv_file} to {output_path}")
+            tqdm.write(f"INFO: Processed and saved {csv_file} to {output_path}")
+
+            processed_df.to_csv(output_path, index=False)
+            tqdm.write(f"INFO: Processed and saved {csv_file} to {output_path}")
