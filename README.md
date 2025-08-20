@@ -165,15 +165,20 @@ The activity heart rate data contains detailed heart rate measurements taken thr
 
 4. **Data Quality Cleaning**: Any heart rate readings of zero (which indicate sensor errors or no contact) are removed to ensure accurate statistics.
 
-5. **Statistical Calculations**: The system calculates useful summary statistics:
-   - **Overall statistics**: Your average, median, minimum, and maximum heart rate across all the data
-   - **Daily statistics**: The same statistics calculated separately for each day
-   - **Daily patterns**: Identifies what time of day your highest heart rate typically occurs
+5. **Statistical Calculations**: The system calculates comprehensive summary statistics:
+   - **Overall statistics**: Your average, median, minimum, maximum, and standard deviation of heart rate across all the data
+   - **Daily statistics**: The same statistics calculated separately for each day, plus daily heart rate count and range
 
-6. **Enhanced Information**: Additional helpful details are added:
-   - Heart rate range (difference between your highest and lowest readings each day)
-   - The exact time when your peak heart rate occurred each day
-   - How many heart rate measurements were recorded each day
+6. **Data Quality Assessment**: Advanced data coverage indicators are added:
+   - **Hours covered per day**: How many different hours of the day have heart rate measurements
+   - **Coverage percentage**: What percentage of each day (0-100%) has heart rate data
+   - **First and last reading times**: When heart rate monitoring started and ended each day
+   - **Daily quality rating**: Automatic classification as "poor" (<50% coverage), "fair" (50-80%), or "good" (>80%)
+
+7. **Enhanced Information**: Additional helpful details are added:
+   - **Heart rate range**: Difference between your highest and lowest readings each day
+   - **Peak timing**: The exact time when your maximum heart rate occurred each day
+   - **Measurement count**: How many heart rate readings were recorded each day
 
 ##### activity_summary_table
 
@@ -190,9 +195,9 @@ The activity summary data contains daily totals of your overall physical activit
 
 3. **Data Quality Cleaning**: Days where both calories burned and total steps are zero (indicating no meaningful activity or device not worn) are removed to ensure accurate statistics.
 
-4. **Statistical Calculations**: The system calculates useful summary statistics for both calories and steps, excluding zero values:
-   - **Overall calorie statistics**: Your average, median, minimum, maximum, and variability of daily calories burned across all the data
-   - **Overall step statistics**: Your average, median, minimum, maximum, and variability of daily steps taken across all the data
+4. **Statistical Calculations**: The system calculates comprehensive summary statistics for both calories and steps, excluding zero values:
+   - **Overall calorie statistics**: Your average, median, minimum, maximum, and standard deviation of daily calories burned across all the data
+   - **Overall step statistics**: Your average, median, minimum, maximum, and standard deviation of daily steps taken across all the data
 
 ##### step_series_table
 
@@ -213,9 +218,9 @@ The step series data contains detailed step counts recorded throughout the day i
 
 5. **Data Quality Cleaning**: Any step counts of zero (indicating no movement or sensor inactivity) are removed to focus on actual activity periods.
 
-6. **Daily Aggregation**: The detailed step measurements are summarized into daily totals and statistics:
-   - **Daily step statistics**: Average, median, minimum, maximum, variability, total steps, and number of measurements per day
-   - **Overall step statistics**: The same statistics calculated across all your data for comparison
+6. **Daily Aggregation**: The detailed step measurements are summarized into meaningful daily statistics:
+   - **Daily step statistics**: Average, median, minimum, maximum, standard deviation, total steps, and count of measurements per day
+   - **Overall step statistics**: The same comprehensive statistics calculated across all your data for comparison
 
 ##### training_hr_samples_table
 
@@ -234,10 +239,10 @@ The training heart rate samples contain detailed heart rate measurements recorde
 
 4. **Time Organization**: The system separates date and hour information for structured analysis.
 
-5. **Hourly Aggregation**: Heart rate data is summarized into hourly blocks:
-   - **Hourly statistics**: Average, median, minimum, maximum, variability, and count of heart rate measurements for each hour
-   - **Daily statistics**: The same statistics calculated for each complete training day
-   - **Overall statistics**: Summary statistics across all your training sessions
+5. **Hourly Aggregation**: Heart rate data is summarized into hourly blocks for detailed pattern analysis:
+   - **Hourly statistics**: Average, median, minimum, maximum, standard deviation, and count of heart rate measurements for each hour
+   - **Daily statistics**: The same comprehensive statistics calculated for each complete training day
+   - **Overall statistics**: Summary statistics across all your training sessions for comparison
 
 ##### training_summary_table
 
@@ -274,10 +279,10 @@ The nightly recovery breathing data contains detailed breathing rate measurement
 
 4. **Time Organization**: The system organizes data by night and hour for structured sleep analysis.
 
-5. **Hourly and Nightly Aggregation**: Breathing data is summarized at multiple time scales:
-   - **Hourly statistics**: Average, median, minimum, maximum, and variability of breathing rate for each hour of sleep
-   - **Nightly statistics**: The same statistics calculated for each complete night
-   - **Overall statistics**: Summary statistics across all your nights
+5. **Hourly and Nightly Aggregation**: Breathing data is summarized at multiple time scales for comprehensive sleep analysis:
+   - **Hourly statistics**: Average, median, minimum, maximum, standard deviation, and count of breathing rate for each hour of sleep
+   - **Nightly statistics**: The same comprehensive statistics calculated for each complete night
+   - **Overall statistics**: Summary statistics across all your nights for comparison
    - **Nightly breathing range**: The difference between your highest and lowest breathing rates each night
 
 ##### nightly_recovery_hrv_data_table
@@ -297,11 +302,165 @@ The nightly recovery heart rate variability (HRV) data contains detailed measure
 
 4. **Time Organization**: The system organizes data by night and hour for structured recovery analysis.
 
-5. **Hourly and Nightly Aggregation**: HRV data is summarized at multiple time scales:
-   - **Hourly statistics**: Average, median, minimum, maximum, and variability of HRV for each hour of sleep
-   - **Nightly statistics**: The same statistics calculated for each complete night
-   - **Overall statistics**: Summary statistics across all your nights
+5. **Hourly and Nightly Aggregation**: HRV data is summarized at multiple time scales for comprehensive recovery analysis:
+   - **Hourly statistics**: Average, median, minimum, maximum, standard deviation, and count of HRV for each hour of sleep
+   - **Nightly statistics**: The same comprehensive statistics calculated for each complete night
+   - **Overall statistics**: Summary statistics across all your nights for comparison
    - **Nightly HRV range**: The difference between your highest and lowest HRV readings each night
+
+---
+
+## **New Fields Added by Filtering**
+
+The filtering process adds comprehensive statistical and quality assessment fields to each data type. Here's a complete reference of the new fields:
+
+### **Activity Heart Rate Data (`activity_hr_table`)**
+
+**Overall Statistics (across all data):**
+- `heartRate_mean_overall`: Average heart rate across all measurements
+- `heartRate_median_overall`: Median heart rate across all measurements  
+- `heartRate_min_overall`: Minimum heart rate recorded
+- `heartRate_max_overall`: Maximum heart rate recorded
+- `heartRate_std_overall`: Standard deviation of heart rate measurements
+
+**Daily Statistics (calculated per day):**
+- `heartRate_mean_daily`: Average heart rate for each day
+- `heartRate_median_daily`: Median heart rate for each day
+- `heartRate_min_daily`: Minimum heart rate for each day
+- `heartRate_max_daily`: Maximum heart rate for each day
+- `heartRate_std_daily`: Standard deviation of heart rate for each day
+- `heartRate_count_daily`: Number of heart rate measurements per day
+- `heartRate_range_daily`: Daily heart rate range (max - min)
+
+**Data Quality Indicators:**
+- `heartRate_hours_covered_daily`: Number of hours with data per day (0-24)
+- `heartRate_first_reading_hour_daily`: Hour when first reading occurred each day
+- `heartRate_last_reading_hour_daily`: Hour when last reading occurred each day
+- `heartRate_coverage_percentage_daily`: Percentage of day covered by data (0-100%)
+- `heartRate_daily_quality`: Quality rating ("poor", "fair", "good") based on coverage
+- `heartRate_max_timeOfDay_daily`: Exact time when maximum heart rate occurred each day
+
+### **Activity Summary Data (`activity_summary_table`)**
+
+**Overall Statistics:**
+- `calories_mean_overall`: Average daily calories across all data
+- `calories_median_overall`: Median daily calories across all data
+- `calories_min_overall`: Minimum daily calories recorded
+- `calories_max_overall`: Maximum daily calories recorded
+- `calories_std_overall`: Standard deviation of daily calories
+- `step_total_mean_overall`: Average daily steps across all data
+- `step_total_median_overall`: Median daily steps across all data
+- `step_total_min_overall`: Minimum daily steps recorded
+- `step_total_max_overall`: Maximum daily steps recorded
+- `step_total_std_overall`: Standard deviation of daily steps
+
+### **Step Series Data (`step_series_table`)**
+
+**Daily Statistics (aggregated from step measurements):**
+- `step_count_mean_daily`: Average step count per measurement for each day
+- `step_count_median_daily`: Median step count per measurement for each day
+- `step_count_min_daily`: Minimum step count measurement for each day
+- `step_count_max_daily`: Maximum step count measurement for each day
+- `step_count_std_daily`: Standard deviation of step measurements for each day
+- `step_count_sum_daily`: Total steps for each day
+- `step_count_count_daily`: Number of step measurements per day
+
+**Overall Statistics:**
+- `step_count_mean_overall`: Average step count across all measurements
+- `step_count_median_overall`: Median step count across all measurements
+- `step_count_min_overall`: Minimum step count measurement
+- `step_count_max_overall`: Maximum step count measurement
+- `step_count_std_overall`: Standard deviation of all step measurements
+- `step_count_sum_overall`: Total steps across all data
+- `step_count_count_overall`: Total number of step measurements
+
+### **Training Heart Rate Samples (`training_hr_samples_table`)**
+
+**Hourly Statistics (data aggregated by hour):**
+- `heartRate_mean_hourly`: Average heart rate for each hour
+- `heartRate_median_hourly`: Median heart rate for each hour
+- `heartRate_min_hourly`: Minimum heart rate for each hour
+- `heartRate_max_hourly`: Maximum heart rate for each hour
+- `heartRate_std_hourly`: Standard deviation of heart rate for each hour
+- `heartRate_count_hourly`: Number of measurements per hour
+
+**Daily Statistics:**
+- `heartRate_mean_daily`: Average heart rate for each training day
+- `heartRate_median_daily`: Median heart rate for each training day
+- `heartRate_min_daily`: Minimum heart rate for each training day
+- `heartRate_max_daily`: Maximum heart rate for each training day
+- `heartRate_std_daily`: Standard deviation of heart rate for each training day
+- `heartRate_count_daily`: Number of measurements per training day
+
+**Overall Statistics:**
+- `heartRate_mean_overall`: Average heart rate across all training sessions
+- `heartRate_median_overall`: Median heart rate across all training sessions
+- `heartRate_min_overall`: Minimum heart rate across all training sessions
+- `heartRate_max_overall`: Maximum heart rate across all training sessions
+- `heartRate_std_overall`: Standard deviation across all training sessions
+
+### **Training Summary Data (`training_summary_table`)**
+
+**Enhanced Time Information:**
+- `start_date`: Training session start date
+- `start_time`: Training session start time
+- `stop_date`: Training session stop date
+- `stop_time`: Training session stop time
+- `start_day_name`: Day of the week for training session start
+
+### **Nightly Recovery Breathing Data (`nightly_recovery_breathing_data_table`)**
+
+**Hourly Statistics (per night and hour):**
+- `breathing_rate_mean_hourly`: Average breathing rate for each hour
+- `breathing_rate_median_hourly`: Median breathing rate for each hour
+- `breathing_rate_min_hourly`: Minimum breathing rate for each hour
+- `breathing_rate_max_hourly`: Maximum breathing rate for each hour
+- `breathing_rate_std_hourly`: Standard deviation of breathing rate for each hour
+- `breathing_rate_count_hourly`: Number of measurements per hour
+
+**Nightly Statistics:**
+- `breathing_rate_mean_daily`: Average breathing rate for each night
+- `breathing_rate_median_daily`: Median breathing rate for each night
+- `breathing_rate_min_daily`: Minimum breathing rate for each night
+- `breathing_rate_max_daily`: Maximum breathing rate for each night
+- `breathing_rate_std_daily`: Standard deviation of breathing rate for each night
+- `breathing_rate_count_daily`: Number of measurements per night
+- `breathing_rate_range_daily`: Breathing rate range for each night (max - min)
+
+**Overall Statistics:**
+- `breathing_rate_mean_overall`: Average breathing rate across all nights
+- `breathing_rate_median_overall`: Median breathing rate across all nights
+- `breathing_rate_min_overall`: Minimum breathing rate across all nights
+- `breathing_rate_max_overall`: Maximum breathing rate across all nights
+- `breathing_rate_std_overall`: Standard deviation across all nights
+
+### **Nightly Recovery HRV Data (`nightly_recovery_hrv_data_table`)**
+
+**Hourly Statistics (per night and hour):**
+- `hrv_value_mean_hourly`: Average HRV for each hour
+- `hrv_value_median_hourly`: Median HRV for each hour
+- `hrv_value_min_hourly`: Minimum HRV for each hour
+- `hrv_value_max_hourly`: Maximum HRV for each hour
+- `hrv_value_std_hourly`: Standard deviation of HRV for each hour
+- `hrv_value_count_hourly`: Number of measurements per hour
+
+**Nightly Statistics:**
+- `hrv_value_mean_daily`: Average HRV for each night
+- `hrv_value_median_daily`: Median HRV for each night
+- `hrv_value_min_daily`: Minimum HRV for each night
+- `hrv_value_max_daily`: Maximum HRV for each night
+- `hrv_value_std_daily`: Standard deviation of HRV for each night
+- `hrv_value_count_daily`: Number of measurements per night
+- `hrv_value_range_daily`: HRV range for each night (max - min)
+
+**Overall Statistics:**
+- `hrv_value_mean_overall`: Average HRV across all nights
+- `hrv_value_median_overall`: Median HRV across all nights
+- `hrv_value_min_overall`: Minimum HRV across all nights
+- `hrv_value_max_overall`: Maximum HRV across all nights
+- `hrv_value_std_overall`: Standard deviation across all nights
+
+---
 
 
 

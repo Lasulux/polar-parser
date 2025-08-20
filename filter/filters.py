@@ -217,6 +217,8 @@ class Filter:
                 # Ensure date column is datetime type
                 df["date"] = pd.to_datetime(df["date"])
                 date_group = df.groupby(df["date"].dt.date)
+
+                # Calculate daily stats
                 df["heartRate_mean_daily"] = date_group["heartRate"].transform("mean")
                 df["heartRate_median_daily"] = date_group["heartRate"].transform("median")
                 df["heartRate_min_daily"] = date_group["heartRate"].transform("min")
@@ -224,6 +226,26 @@ class Filter:
                 df["heartRate_std_daily"] = date_group["heartRate"].transform("std")
                 df["heartRate_count_daily"] = date_group["heartRate"].transform("count")
                 df["heartRate_range_daily"] = df["heartRate_max_daily"] - df["heartRate_min_daily"]
+
+                # Add data quality indicators
+                df["heartRate_hours_covered_daily"] = date_group["datetime"].transform(
+                    lambda x: x.dt.hour.nunique()
+                )
+                df["heartRate_first_reading_hour_daily"] = date_group["datetime"].transform(
+                    lambda x: x.dt.hour.min()
+                )
+                df["heartRate_last_reading_hour_daily"] = date_group["datetime"].transform(
+                    lambda x: x.dt.hour.max()
+                )
+                df["heartRate_coverage_percentage_daily"] = (df["heartRate_hours_covered_daily"] / 24) * 100
+
+                # Add heartRate_daily_quality based on coverage
+                df["heartRate_daily_quality"] = pd.cut(
+                    df["heartRate_coverage_percentage_daily"],
+                    bins=[0, 50, 80, 100],
+                    labels=["poor", "fair", "good"],
+                    include_lowest=True,
+                )
 
                 # Add timeOfDay for daily max heartRate
                 if "timeOfDay" in df.columns:
